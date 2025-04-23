@@ -9,7 +9,6 @@ using Project41225.Infrastructure.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"))
         .EnableTokenAcquisitionToCallDownstreamApi()
@@ -17,7 +16,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddInMemoryTokenCaches();
 
 builder.Services.AddControllers();
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -32,16 +30,23 @@ builder.Services.Configure<AzureOpenAISettings>(
 
 builder.Services.AddScoped<IAzureOpenAIService, AzureOpenAIService>();
 
-// Cosmos DB
-builder.Services.AddSingleton(s =>
+// Development-specific configuration
+if (builder.Environment.IsDevelopment())
 {
-    var cosmosClient = new CosmosClient(accountEndpoint: "", tokenCredential: new DefaultAzureCredential());
-    return cosmosClient.GetDatabase("InterviewDB");
-});
+    // Cosmos DB
+    builder.Services.AddSingleton(s =>
+    {
+        var connectionString = builder.Configuration["CosmosDB:ConnectionString"];
+        return new CosmosClient(connectionString);
+    });
+}
+else
+{
+    // Production-specific configuration
+};
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
