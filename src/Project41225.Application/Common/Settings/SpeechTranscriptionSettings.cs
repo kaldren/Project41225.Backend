@@ -4,6 +4,8 @@ namespace Project41225.Application.Common.Settings;
 
 public class SpeechTranscriptionSettings
 {
+    public const string AppSettingsKey = "SpeechTranscription";
+
     [Required]
     public string SubscriptionKey { get; set; } = string.Empty;
 

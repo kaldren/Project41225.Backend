@@ -62,6 +62,11 @@ public static class InfrastructureExtensions
     {
         services.AddSignalR();
 
+        services.AddOptions<SpeechTranscriptionSettings>()
+            .BindConfiguration(SpeechTranscriptionSettings.AppSettingsKey)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        
         // thread-safe
         services.AddSingleton<ISpeechTranscriptionService, SpeechTranscriptionService>();
 
