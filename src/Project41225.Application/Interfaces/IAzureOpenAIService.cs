@@ -2,5 +2,5 @@
 
 public interface IAzureOpenAIService
 {
-    Task<string> GetChatCompletionAsync(string prompt);
+    Task<string> GetChatCompletionAsync(string role, string sessionId);
 }

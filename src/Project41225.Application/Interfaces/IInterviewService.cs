@@ -2,5 +2,5 @@
 
 public interface IInterviewService
 {
-    Task<Guid> StartInterview();
+    Task<string> StartInterviewAsync(string role);
 }

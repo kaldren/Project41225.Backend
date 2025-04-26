@@ -1,4 +1,5 @@
 ﻿using Microsoft.Azure.Cosmos;
+using Microsoft.Extensions.Configuration;
 using Project41225.Application.Interfaces;
 using Project41225.Domain.Entities;
 
@@ -7,15 +8,26 @@ namespace Project41225.Infrastructure.Services;
 public class InterviewSessionRepository : IInterviewSessionRepository
 {
     private readonly Container _container;
+    private readonly IConfiguration _configuration;
 
-    public InterviewSessionRepository(CosmosClient cosmosClient)
+    public InterviewSessionRepository(CosmosClient cosmosClient, IConfiguration configuration)
     {
-        _container = cosmosClient.GetContainer("InterviewDB", "Interviews");
+        _configuration = configuration;
+        _container = cosmosClient.GetContainer(_configuration["CosmosDB:DatabaseName"], _configuration["CosmosDB:InterviewsContainer"]);
     }
 
     public async Task SaveAsync(InterviewSession session)
     {
-        await _container.UpsertItemAsync(session, new PartitionKey(session.UserId));
+        try
+        {
+            await _container.CreateItemAsync(session, new PartitionKey(session.UserId));
+        }
+        catch (CosmosException ex)
+        {
+            Console.WriteLine($"Cosmos error: {ex.StatusCode} - {ex.Message}");
+            Console.WriteLine($"ActivityId: {ex.ActivityId}");
+            throw;
+        }
     }
 
     public async Task<InterviewSession?> GetByIdAsync(string id, string userId)

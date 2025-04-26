@@ -4,7 +4,9 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Identity.Web;
 using Project41225.Application.Configuration;
+using Project41225.Application.Extensions;
 using Project41225.Application.Interfaces;
+using Project41225.Infrastructure.Extensions;
 using Project41225.Infrastructure.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -30,15 +32,14 @@ builder.Services.Configure<AzureOpenAISettings>(
 
 builder.Services.AddScoped<IAzureOpenAIService, AzureOpenAIService>();
 
+// Application services
+builder.Services.AddApplicationServices();
+
 // Development-specific configuration
 if (builder.Environment.IsDevelopment())
 {
     // Cosmos DB
-    builder.Services.AddSingleton(s =>
-    {
-        var connectionString = builder.Configuration["CosmosDB:ConnectionString"];
-        return new CosmosClient(connectionString);
-    });
+    builder.Services.AddInfrastructureServices(builder.Configuration);
 }
 else
 {
