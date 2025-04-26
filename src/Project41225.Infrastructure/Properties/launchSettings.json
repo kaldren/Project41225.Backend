@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "Project41225.Infrastructure": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:65425;http://localhost:65426"
+    }
+  }
+}

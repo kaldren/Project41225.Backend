@@ -2,7 +2,7 @@
 using Azure.AI.OpenAI;
 using Microsoft.Extensions.Options;
 using OpenAI.Chat;
-using Project41225.Application.Configuration;
+using Project41225.Application.Common.Settings;
 using Project41225.Application.Interfaces;
 using System.Text;
 

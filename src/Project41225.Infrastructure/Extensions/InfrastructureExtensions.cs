@@ -1,9 +1,11 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.AspNetCore.Builder;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Project41225.Application.Configuration;
+using Project41225.Application.Common.Settings;
 using Project41225.Application.Interfaces;
 using Project41225.Infrastructure.Data;
+using Project41225.Infrastructure.Hubs;
 using Project41225.Infrastructure.Repositories;
 using Project41225.Infrastructure.Services;
 
@@ -16,6 +18,8 @@ public static class InfrastructureExtensions
         services.AddDataCosmosDB(configuration);
 
         services.AddRepositoriesAndServices(configuration);
+
+        services.AddAudioHubServices();
 
         return services;
     }
@@ -52,5 +56,29 @@ public static class InfrastructureExtensions
         
 
         return services;
+    }
+
+    private static IServiceCollection AddAudioHubServices(this IServiceCollection services)
+    {
+        services.AddSignalR();
+
+        // thread-safe
+        services.AddSingleton<ISpeechTranscriptionService, SpeechTranscriptionService>();
+
+        return services;
+    }
+
+    public static WebApplication UseInfrastructure(this WebApplication app)
+    {
+        app.UseAudioHub();
+
+        return app;
+    }
+
+    private static WebApplication UseAudioHub(this WebApplication app)
+    {
+        app.MapHub<AudioHub>("/hubs/audio");
+
+        return app;
     }
 }

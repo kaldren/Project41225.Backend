@@ -1,4 +1,4 @@
-﻿namespace Project41225.Application.Configuration;
+﻿namespace Project41225.Application.Common.Settings;
 public class AzureOpenAISettings
 {
     public const string AppSettingsKey = "AzureOpenAI";
