@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Identity.Web;
+using Project41225.Api.Hubs;
 using Project41225.Application.Configuration;
 using Project41225.Application.Extensions;
 using Project41225.Application.Interfaces;
@@ -21,30 +22,15 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Key Vault
-builder.Services.Configure<KeyVaultSettings>(builder.Configuration.GetSection("KeyVault"));
 
-// Custom services
-builder.Services.AddScoped<IKeyVaultService, KeyVaultService>();
-
-builder.Services.Configure<AzureOpenAISettings>(
-    builder.Configuration.GetSection("AzureOpenAI"));
-
-builder.Services.AddScoped<IAzureOpenAIService, AzureOpenAIService>();
+builder.Services.AddApiHub();
 
 // Application services
 builder.Services.AddApplicationServices();
 
-// Development-specific configuration
-if (builder.Environment.IsDevelopment())
-{
-    // Cosmos DB
-    builder.Services.AddInfrastructureServices(builder.Configuration);
-}
-else
-{
-    // Production-specific configuration
-};
+// Infrastructure Services
+builder.Services.AddInfrastructureServices(builder.Configuration);
+
 
 var app = builder.Build();
 
