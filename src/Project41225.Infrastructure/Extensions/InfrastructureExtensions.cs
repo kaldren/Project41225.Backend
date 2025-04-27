@@ -1,7 +1,9 @@
 ﻿using Microsoft.AspNetCore.Builder;
+using Microsoft.Azure.Cosmos;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Project41225.Application.Common.Settings;
 using Project41225.Application.Interfaces;
 using Project41225.Infrastructure.Data;
@@ -26,11 +28,25 @@ public static class InfrastructureExtensions
 
     private static IServiceCollection AddDataCosmosDB(this IServiceCollection services, IConfiguration configuration)
     {
-        services.AddDbContext<CosmosContext>(opts =>
-                opts.UseCosmos(
-                    configuration["Cosmos:Endpoint"] ?? throw new KeyNotFoundException("Cosmos Endpoint missing"),
-                    configuration["Cosmos:AccountKey"] ?? throw new KeyNotFoundException("Cosmos Account Key missing"),
-                    databaseName: "InterviewDb"));
+        services.AddOptions<CosmosSettings>()
+            .BindConfiguration(CosmosSettings.AppSettingsKey)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+     
+        services.AddDbContext<CosmosContext>((sp, options) =>
+        {
+            var cosmosSettings = sp.GetRequiredService<IOptions<CosmosSettings>>().Value;
+
+            options.UseCosmos(
+                 cosmosSettings.AccountEndpoint,
+                 cosmosSettings.AccountKey,
+                 cosmosSettings.DatabaseName,
+                 cosmosOptions =>
+                 {
+                     cosmosOptions.ConnectionMode(ConnectionMode.Gateway);
+                 });
+        });
 
 
         return services;
@@ -60,7 +76,10 @@ public static class InfrastructureExtensions
 
     private static IServiceCollection AddAudioHubServices(this IServiceCollection services)
     {
-        services.AddSignalR();
+        services.AddSignalR(options =>
+        {
+            options.EnableDetailedErrors = true;
+        });
 
         services.AddOptions<SpeechTranscriptionSettings>()
             .BindConfiguration(SpeechTranscriptionSettings.AppSettingsKey)

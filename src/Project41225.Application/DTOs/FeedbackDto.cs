@@ -2,7 +2,7 @@
 
 public class QuestionScoreDto
 {
-    public string Id { get; set; } = string.Empty;
+    public Guid Id { get; set; }
     public string Text { get; set; } = string.Empty;
     public int Score { get; set; }
 }

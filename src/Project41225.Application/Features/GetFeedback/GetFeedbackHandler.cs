@@ -18,12 +18,12 @@ public class GetFeedbackHandler : IRequestHandler<GetFeedbackQuery, FeedbackDto>
             Clarity = result.Clarity,
             Content = result.Content,
             Pace = result.Pace,
-            Questions = result.Questions.Select(q => new QuestionScoreDto
+            Questions = [.. result.Questions.Select(q => new QuestionScoreDto
             {
                 Id = q.Id,
                 Text = q.Text,
                 Score = q.Score
-            }).ToList()
+            })]
         };
     }
 }
