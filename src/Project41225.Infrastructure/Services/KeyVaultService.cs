@@ -1,11 +1,11 @@
 ﻿using Azure.Identity;
 using Azure.Security.KeyVault.Secrets;
 using Microsoft.Extensions.Options;
-using Project41225.Application.Configuration;
+using Project41225.Application.Common.Settings;
 using Project41225.Application.Interfaces;
 
 namespace Project41225.Infrastructure.Services;
-public class KeyVaultService : IKeyVaultService
+public class KeyVaultService : IKeyVaultProvider
 {
     private readonly IOptions<KeyVaultSettings> _options;
     private readonly SecretClient _secretClient;

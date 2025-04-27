@@ -1,15 +1,14 @@
 ﻿using Azure;
 using Azure.AI.OpenAI;
-using Azure.Identity;
 using Microsoft.Extensions.Options;
 using OpenAI.Chat;
-using Project41225.Application.Configuration;
+using Project41225.Application.Common.Settings;
 using Project41225.Application.Interfaces;
 using System.Text;
 
 namespace Project41225.Infrastructure.Services;
 
-public class AzureOpenAIService : IAzureOpenAIService
+public class AzureOpenAIService : IAzureOpenAIProvider
 {
     private readonly IOptions<AzureOpenAISettings> _azureOpenAISettings;
     private readonly AzureOpenAIClient _azureClient;
