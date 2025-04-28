@@ -79,7 +79,9 @@ public static class InfrastructureExtensions
         services.AddSignalR(options =>
         {
             options.EnableDetailedErrors = true;
-        });
+            options.MaximumReceiveMessageSize = 1024 * 1024; // allow up to 1MB per message
+        })
+        .AddMessagePackProtocol();
 
         services.AddOptions<SpeechTranscriptionSettings>()
             .BindConfiguration(SpeechTranscriptionSettings.AppSettingsKey)
