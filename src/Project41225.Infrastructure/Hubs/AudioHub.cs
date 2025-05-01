@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.SignalR;
 using Project41225.Application.Interfaces;
+using System;
 
 namespace Project41225.Infrastructure.Hubs;
 
@@ -25,11 +26,25 @@ public class AudioHub : Hub
 
     public async Task SendAudioChunk(Guid sessionId, byte[] chunk)
     {
-        await _chatService.ProcessAudioChunkAsync(Context.ConnectionId, chunk);
+        await _chatService.ProcessAudioChunkAsync(sessionId, chunk);
     }
 
-    public async Task StopSession()
+    public async Task StopSession(Guid sessionId)
     {
-        await _chatService.StopSessionAsync(Context.ConnectionId);
+        try
+        {
+            await _chatService.StopSessionAsync(sessionId);
+        }
+        catch (Exception)
+        {
+            await _chatService.StopSessionByConnectionAsync(Context.ConnectionId);
+        }
+    }
+
+    public override async Task OnDisconnectedAsync(Exception? ex)
+    {
+        // Tell your service to stop and remove the session
+        await _chatService.StopSessionByConnectionAsync(Context.ConnectionId);
+        await base.OnDisconnectedAsync(ex);
     }
 }

@@ -14,7 +14,7 @@ public class RealtimeAudioChatService : IRealtimeAudioChatService
 {
     private readonly AzureOpenAISettings _openAIOptions;
     private readonly IHubContext<AudioHub> _hubContext;
-    private readonly ConcurrentDictionary<string, WebSocketSession> _sessions = new();
+    private readonly ConcurrentDictionary<Guid, WebSocketSession> _sessions = new();
 
     public RealtimeAudioChatService(IOptions<AzureOpenAISettings> options, IHubContext<AudioHub> hubContext)
     {
@@ -27,7 +27,10 @@ public class RealtimeAudioChatService : IRealtimeAudioChatService
         try
         {
             var ws = new ClientWebSocket();
+            // 1️ Auth
             ws.Options.SetRequestHeader("Authorization", $"Bearer {_openAIOptions.Key}");
+            // 2️ Tell OpenAI you’re opting into the realtime beta
+            ws.Options.SetRequestHeader("openai-beta", "realtime=v1");
             // connect to Realtime API
             var uri = new Uri($"{_openAIOptions.RealtimeApi.WebSocketEndpoint}/realtime?model={_openAIOptions.RealtimeApi.ModelDeploymentName}&session_id={sessionId}");
             await ws.ConnectAsync(uri, CancellationToken.None);
@@ -40,13 +43,24 @@ public class RealtimeAudioChatService : IRealtimeAudioChatService
                 {
                     input_audio_format = _openAIOptions.RealtimeApi.AudioFormat,
                     input_audio_transcription = new { model = _openAIOptions.RealtimeApi.AudioTranscriptionModel },
-                    turn_detection = new { type = "server_vad" }
+                    turn_detection = new 
+                    { 
+                        type = "server_vad",
+                        voice_activity_parameters = new
+                        {
+                            // how loud must speech be to count as “voice”? 
+                            // default is 0.5; raise to 0.7 for stricter detection.
+                            threshold = 0.5,
+                            // how many ms of silence before “turn.end” fires?
+                            silence_timeout_ms = 300
+                        }
+                    }
                 }
             };
             await SendJsonAsync(ws, sessionUpdate);
 
             var s = new WebSocketSession(ws, connectionId, sessionId);
-            _sessions[connectionId] = s;
+            _sessions[sessionId] = s;
 
             _ = ReceiveLoopAsync(s); // fire‐and‐forget
         }
@@ -56,9 +70,9 @@ public class RealtimeAudioChatService : IRealtimeAudioChatService
         }
     }
 
-    public async Task ProcessAudioChunkAsync(string connectionId, byte[] pcm16Chunk)
+    public async Task ProcessAudioChunkAsync(Guid sessionId, byte[] pcm16Chunk)
     {
-        if (!_sessions.TryGetValue(connectionId, out var s))
+        if (!_sessions.TryGetValue(sessionId, out var s))
             throw new InvalidOperationException("Session not found");
 
         // append audio buffer
@@ -74,15 +88,24 @@ public class RealtimeAudioChatService : IRealtimeAudioChatService
             WebSocketMessageType.Binary, true, CancellationToken.None);
     }
 
-    public async Task StopSessionAsync(string connectionId)
+    public async Task StopSessionAsync(Guid sessionId)
     {
-        if (_sessions.TryRemove(connectionId, out var s))
+        if (_sessions.TryRemove(sessionId, out var s))
         {
             // commit buffer → triggers transcription & then chat response
             await SendJsonAsync(s.Socket, new { type = "input_audio_buffer.commit" });
             // close
             await s.Socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Session ended", CancellationToken.None);
         }
+    }
+
+    public async Task StopSessionByConnectionAsync(string connectionId)
+    {
+        var session = _sessions.First(s => s.Value.ConnectionId == connectionId).Value;
+        // commit buffer → triggers transcription & then chat response
+        await SendJsonAsync(session.Socket, new { type = "input_audio_buffer.commit" });
+        // close
+        await session.Socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Session ended", CancellationToken.None);
     }
 
     private async Task ReceiveLoopAsync(WebSocketSession s)
@@ -107,6 +130,21 @@ public class RealtimeAudioChatService : IRealtimeAudioChatService
                     var type = doc.RootElement.GetProperty("type").GetString();
                     switch (type)
                     {
+                        case "session.created":
+                            // (you can log or ignore)
+                            break;
+
+                        case "turn.started":
+                            // user began speaking
+                            // e.g. clear any buffers or UI state
+                            break;
+
+                        case "turn.ended":
+                            // server-side VAD detected end of user speech
+                            // automatically ask for the model’s reply
+                            await SendJsonAsync(s.Socket, new { type = "response.create" });
+                            break;
+
                         case "conversation.item.audio_transcription.completed":
                             {
                                 var text = doc.RootElement
