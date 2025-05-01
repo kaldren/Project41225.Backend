@@ -21,9 +21,18 @@ public static class InfrastructureExtensions
 
         services.AddRepositoriesAndServices(configuration);
 
-        services.AddAudioHubServices();
+        services.AddOpenAIServices();
+
+        services.AddHubRealtimeAudioChatServices();
 
         return services;
+    }
+
+    public static WebApplication UseInfrastructure(this WebApplication app)
+    {
+        app.UseHubRealtimeAudioChat();
+
+        return app;
     }
 
     private static IServiceCollection AddDataCosmosDB(this IServiceCollection services, IConfiguration configuration)
@@ -59,12 +68,7 @@ public static class InfrastructureExtensions
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
-        services.AddOptions<AzureOpenAISettings>()
-            .BindConfiguration(AzureOpenAISettings.AppSettingsKey)
-            .ValidateDataAnnotations()
-            .ValidateOnStart();
-
-        services.AddScoped<IAzureOpenAIProvider, AzureOpenAIService>();
+        
         services.AddScoped<IInterviewRepository, InterviewRepository>();
         services.AddScoped<IFeedbackService, FeedbackService>();
         services.AddScoped<IAudioRepository, AudioRepository>();
@@ -74,7 +78,18 @@ public static class InfrastructureExtensions
         return services;
     }
 
-    private static IServiceCollection AddAudioHubServices(this IServiceCollection services)
+    private static IServiceCollection AddOpenAIServices(this IServiceCollection services)
+    {
+        services.AddOptions<AzureOpenAISettings>()
+            .BindConfiguration(AzureOpenAISettings.AppSettingsKey)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        services.AddScoped<IAzureOpenAIProvider, AzureOpenAIService>();
+        return services;
+    }
+
+    private static IServiceCollection AddHubRealtimeAudioChatServices(this IServiceCollection services)
     {
         services.AddSignalR(options =>
         {
@@ -83,25 +98,12 @@ public static class InfrastructureExtensions
         })
         .AddMessagePackProtocol();
 
-        services.AddOptions<SpeechTranscriptionSettings>()
-            .BindConfiguration(SpeechTranscriptionSettings.AppSettingsKey)
-            .ValidateDataAnnotations()
-            .ValidateOnStart();
-        
-        // thread-safe
-        services.AddSingleton<ISpeechTranscriptionService, SpeechTranscriptionService>();
+        services.AddScoped<IRealtimeAudioChatService, RealtimeAudioChatService>();
 
         return services;
     }
 
-    public static WebApplication UseInfrastructure(this WebApplication app)
-    {
-        app.UseAudioHub();
-
-        return app;
-    }
-
-    private static WebApplication UseAudioHub(this WebApplication app)
+    private static WebApplication UseHubRealtimeAudioChat(this WebApplication app)
     {
         app.MapHub<AudioHub>("/hubs/audio");
 
