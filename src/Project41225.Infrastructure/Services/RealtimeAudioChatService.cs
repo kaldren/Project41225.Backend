@@ -46,7 +46,7 @@ public class RealtimeAudioChatService : IRealtimeAudioChatService
             await SendJsonAsync(ws, sessionUpdate);
 
             var s = new WebSocketSession(ws, connectionId, sessionId);
-            _sessions[connectionId] = s;
+            _sessions[sessionId.ToString()] = s;
 
             _ = ReceiveLoopAsync(s); // fire‐and‐forget
         }
@@ -56,9 +56,9 @@ public class RealtimeAudioChatService : IRealtimeAudioChatService
         }
     }
 
-    public async Task ProcessAudioChunkAsync(string connectionId, byte[] pcm16Chunk)
+    public async Task ProcessAudioChunkAsync(Guid sessionId, byte[] pcm16Chunk)
     {
-        if (!_sessions.TryGetValue(connectionId, out var s))
+        if (!_sessions.TryGetValue(sessionId.ToString(), out var s))
             throw new InvalidOperationException("Session not found");
 
         // append audio buffer
