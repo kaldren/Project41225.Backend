@@ -98,7 +98,7 @@ public static class InfrastructureExtensions
         })
         .AddMessagePackProtocol();
 
-        services.AddScoped<IRealtimeAudioChatService, RealtimeAudioChatService>();
+        services.AddSingleton<IRealtimeAudioChatService, RealtimeAudioChatService>();
 
         return services;
     }
