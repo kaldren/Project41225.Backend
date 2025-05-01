@@ -21,7 +21,7 @@ public class AzureOpenAIService : IAzureOpenAIProvider
             new Uri(_azureOpenAISettings.Value.Endpoint),
             new AzureKeyCredential(_azureOpenAISettings.Value.Key));
 
-        _chatClient = _azureClient.GetChatClient(_azureOpenAISettings.Value.DeploymentName);
+        _chatClient = _azureClient.GetChatClient(_azureOpenAISettings.Value.ModelDeploymentName);
     }
 
     public async Task<string> GetChatCompletionAsync(string prompt, string sessionId)

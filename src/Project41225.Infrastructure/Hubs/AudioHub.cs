@@ -5,11 +5,11 @@ namespace Project41225.Infrastructure.Hubs;
 
 public class AudioHub : Hub
 {
-    private readonly ISpeechTranscriptionService _speechService;
+    private readonly IRealtimeAudioChatService _chatService;
 
-    public AudioHub(ISpeechTranscriptionService speechService)
+    public AudioHub(IRealtimeAudioChatService chatService)
     {
-        _speechService = speechService;
+        _chatService = chatService;
     }
 
     public override async Task OnConnectedAsync()
@@ -20,16 +20,16 @@ public class AudioHub : Hub
 
     public async Task StartSession(Guid sessionId)
     {
-        await _speechService.StartRecognitionAsync(Context.ConnectionId, sessionId);
+        await _chatService.StartSessionAsync(Context.ConnectionId, sessionId);
     }
 
     public async Task SendAudioChunk(Guid sessionId, byte[] chunk)
     {
-        await _speechService.ProcessAudioChunkAsync(Context.ConnectionId, chunk);
+        await _chatService.ProcessAudioChunkAsync(Context.ConnectionId, chunk);
     }
 
     public async Task StopSession()
     {
-        await _speechService.StopRecognitionAsync(Context.ConnectionId);
+        await _chatService.StopSessionAsync(Context.ConnectionId);
     }
 }
