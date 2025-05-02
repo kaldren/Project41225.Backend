@@ -28,8 +28,9 @@ public class RealtimeAudioChatService : IRealtimeAudioChatService
         {
             var ws = new ClientWebSocket();
             ws.Options.SetRequestHeader("Authorization", $"Bearer {_openAIOptions.Key}");
+            ws.Options.SetRequestHeader("openai-beta", $"realtime=v1");
             // connect to Realtime API
-            var uri = new Uri($"{_openAIOptions.RealtimeApi.WebSocketEndpoint}/realtime?model={_openAIOptions.RealtimeApi.ModelDeploymentName}&session_id={sessionId}");
+            var uri = new Uri($"{_openAIOptions.RealtimeApi.WebSocketEndpoint}/realtime?model={_openAIOptions.RealtimeApi.ModelDeploymentName}");
             await ws.ConnectAsync(uri, CancellationToken.None);
 
             // send session.update to configure transcription & VAD
@@ -61,17 +62,28 @@ public class RealtimeAudioChatService : IRealtimeAudioChatService
         if (!_sessions.TryGetValue(sessionId.ToString(), out var s))
             throw new InvalidOperationException("Session not found");
 
-        // append audio buffer
-        var msg = new { type = "input_audio_buffer.append" };
-        var header = JsonSerializer.Serialize(msg);
-        // send header
+        if (s.Socket.State != WebSocketState.Open)
+        {
+            Console.WriteLine($"⚠️ WebSocket not open for session: {sessionId}");
+            return;
+        }
+
+        var header = new { type = "input_audio_buffer.append" };
+        var headerBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(header));
+
+        // Send JSON header
         await s.Socket.SendAsync(
-            new ArraySegment<byte>(Encoding.UTF8.GetBytes(header)),
-            WebSocketMessageType.Text, true, CancellationToken.None);
-        // then send raw PCM16 binary
+            new ArraySegment<byte>(headerBytes),
+            WebSocketMessageType.Text,
+            true,
+            CancellationToken.None);
+
+        // ✅ Then send actual audio as binary
         await s.Socket.SendAsync(
             new ArraySegment<byte>(pcm16Chunk),
-            WebSocketMessageType.Binary, true, CancellationToken.None);
+            WebSocketMessageType.Binary,
+            true,
+            CancellationToken.None);
     }
 
     public async Task StopSessionAsync(string connectionId)
@@ -113,6 +125,7 @@ public class RealtimeAudioChatService : IRealtimeAudioChatService
                                     .GetProperty("data")
                                     .GetProperty("transcript")
                                     .GetString();
+                                Console.WriteLine(@$"TRANSCRIBED TEXT: {text}");
                                 await _hubContext.Clients
                                     .Client(s.ConnectionId)
                                     .SendAsync("ReceiveFinalTranscript", s.SessionId, text);
