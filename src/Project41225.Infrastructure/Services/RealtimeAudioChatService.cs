@@ -50,9 +50,9 @@ public class RealtimeAudioChatService : IRealtimeAudioChatService
                     { 
                         type = "server_vad",
                         // how loud must speech be?
-                        threshold = 0.7,
+                        threshold = 0.5,
                         // how many ms of silence to trigger turn.end?
-                        silence_duration_ms = 700,
+                        silence_duration_ms = 500,
                         // (optional) include a little audio before speech
                         prefix_padding_ms = 100,
                         // (optional) auto‐create response on turn.end
