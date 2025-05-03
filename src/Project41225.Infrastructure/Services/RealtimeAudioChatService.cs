@@ -1,5 +1,4 @@
 ﻿using Microsoft.AspNetCore.SignalR;
-using Microsoft.Azure.Cosmos.Core;
 using Microsoft.Extensions.Options;
 using Project41225.Application.Common.Settings;
 using Project41225.Application.Interfaces;
@@ -8,8 +7,6 @@ using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
-using static System.Net.Mime.MediaTypeNames;
-using static System.Runtime.CompilerServices.RuntimeHelpers;
 
 namespace Project41225.Infrastructure.Services;
 
@@ -59,7 +56,7 @@ public class RealtimeAudioChatService : IRealtimeAudioChatService
                         // (optional) include a little audio before speech
                         prefix_padding_ms = 100,
                         // (optional) auto‐create response on turn.end
-                        create_response = true,
+                        //create_response = true, // DISABLED FOR RETURNING TEXT RATHER THEN AUDIO CHUNKS
                         // (optional) cut off mid‐generation if user speaks
                         interrupt_response = true
 
@@ -170,6 +167,15 @@ public class RealtimeAudioChatService : IRealtimeAudioChatService
                 case "turn.ended":
                     // server-side VAD detected end of user speech
                     // automatically ask for the model’s reply
+                    await SendJsonAsync(s.Socket, new
+                    {
+                        type = "response.create",
+                        response = new
+                        {
+                            modalities = new[] { "text" },
+                            instructions = $"Please answer in English."
+                        }
+                    });
                     //await SendJsonAsync(s.Socket, new { type = "response.create" });
                     break;
                 
@@ -232,7 +238,7 @@ public class RealtimeAudioChatService : IRealtimeAudioChatService
                     break;
                 case "response.audio.delta":
                     {
-
+                        continue; // skipping it for now
                         try
                         {
                             Console.WriteLine($"response.audio.delta doc: {doc.RootElement.GetRawText()}");
