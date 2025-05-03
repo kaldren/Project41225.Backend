@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.SignalR;
+using Microsoft.Azure.Cosmos.Core;
 using Microsoft.Extensions.Options;
 using Project41225.Application.Common.Settings;
 using Project41225.Application.Interfaces;
@@ -46,14 +47,17 @@ public class RealtimeAudioChatService : IRealtimeAudioChatService
                     turn_detection = new 
                     { 
                         type = "server_vad",
-                        voice_activity_parameters = new
-                        {
-                            // how loud must speech be to count as “voice”? 
-                            // default is 0.5; raise to 0.7 for stricter detection.
-                            threshold = 0.5,
-                            // how many ms of silence before “turn.end” fires?
-                            silence_timeout_ms = 300
-                        }
+                        // how loud must speech be?
+                        threshold = 0.7,
+                        // how many ms of silence to trigger turn.end?
+                        silence_duration_ms = 700,
+                        // (optional) include a little audio before speech
+                        prefix_padding_ms = 100,
+                        // (optional) auto‐create response on turn.end
+                        create_response = true,
+                        // (optional) cut off mid‐generation if user speaks
+                        interrupt_response = true
+
                     }
                 }
             };
@@ -75,17 +79,35 @@ public class RealtimeAudioChatService : IRealtimeAudioChatService
         if (!_sessions.TryGetValue(sessionId, out var s))
             throw new InvalidOperationException("Session not found");
 
-        // append audio buffer
-        var msg = new { type = "input_audio_buffer.append" };
-        var header = JsonSerializer.Serialize(msg);
-        // send header
-        await s.Socket.SendAsync(
-            new ArraySegment<byte>(Encoding.UTF8.GetBytes(header)),
-            WebSocketMessageType.Text, true, CancellationToken.None);
-        // then send raw PCM16 binary
-        await s.Socket.SendAsync(
-            new ArraySegment<byte>(pcm16Chunk),
-            WebSocketMessageType.Binary, true, CancellationToken.None);
+        if (s.Socket.State != WebSocketState.Open)
+        {
+            Console.WriteLine($"WebSocket not open for session: {sessionId}");
+            _sessions.TryRemove(sessionId, out _);
+            return;
+        }
+
+        try
+        {
+            // Build a single JSON payload with base64-encoded audio
+            var payload = new
+            {
+                type = "input_audio_buffer.append",
+                audio = Convert.ToBase64String(pcm16Chunk)
+            };
+
+            await SendJsonAsync(s.Socket, payload);
+        }
+        catch (WebSocketException)
+        {
+            // remote party closed it—cleanup and quit silently
+            _sessions.TryRemove(sessionId, out _);
+        }
+        catch (Exception ex)
+        {
+            // you may log unexpected errors, but don't rethrow
+            Console.Error.WriteLine($"Error sending audio chunk: {ex}");
+            throw;
+        }
     }
 
     public async Task StopSessionAsync(Guid sessionId)
@@ -115,65 +137,92 @@ public class RealtimeAudioChatService : IRealtimeAudioChatService
         while (s.Socket.State == WebSocketState.Open)
         {
             var result = await s.Socket.ReceiveAsync(buffer, CancellationToken.None);
-            if (result.MessageType == WebSocketMessageType.Close)
-                break;
+            if (result.MessageType == WebSocketMessageType.Close) break;
 
             ms.Write(buffer, 0, result.Count);
-            if (result.EndOfMessage)
+            if (!result.EndOfMessage) continue;
+
+            var raw = ms.ToArray();
+            ms.SetLength(0);
+
+            if (result.MessageType != WebSocketMessageType.Text) continue;
+
+            using var doc = JsonDocument.Parse(raw);
+            var type = doc.RootElement.GetProperty("type").GetString();
+            Console.WriteLine($"Event types: {type}");
+                    
+            switch (type)
             {
-                var raw = ms.ToArray();
-                ms.SetLength(0);
+                case "session.created":
+                    // (you can log or ignore)
+                    break;
 
-                if (result.MessageType == WebSocketMessageType.Text)
-                {
-                    var doc = JsonDocument.Parse(raw);
-                    var type = doc.RootElement.GetProperty("type").GetString();
-                    switch (type)
+                case "turn.started":
+                    // user began speaking
+                    // e.g. clear any buffers or UI state
+                    break;
+
+                case "turn.ended":
+                    // server-side VAD detected end of user speech
+                    // automatically ask for the model’s reply
+                    //await SendJsonAsync(s.Socket, new { type = "response.create" });
+                    break;
+                
+                case "conversation.item.input_audio_transcription.failed":
                     {
-                        case "session.created":
-                            // (you can log or ignore)
-                            break;
+                        var itemId = doc.RootElement.GetProperty("item_id").GetString();
+                        var errorObj = doc.RootElement.GetProperty("error");
+                        var errType = errorObj.GetProperty("type").GetString();
+                        var errCode = errorObj.GetProperty("code").GetString();
+                        var errMsg = errorObj.GetProperty("message").GetString();
 
-                        case "turn.started":
-                            // user began speaking
-                            // e.g. clear any buffers or UI state
-                            break;
-
-                        case "turn.ended":
-                            // server-side VAD detected end of user speech
-                            // automatically ask for the model’s reply
-                            await SendJsonAsync(s.Socket, new { type = "response.create" });
-                            break;
-
-                        case "conversation.item.audio_transcription.completed":
-                            {
-                                var text = doc.RootElement
-                                    .GetProperty("data")
-                                    .GetProperty("transcript")
-                                    .GetString();
-                                await _hubContext.Clients
-                                    .Client(s.ConnectionId)
-                                    .SendAsync("ReceiveFinalTranscript", s.SessionId, text);
-                            }
-                            break;
-                        case "response.text.delta":
-                            {
-                                var delta = doc.RootElement
-                                    .GetProperty("data")
-                                    .GetProperty("content")
-                                    .GetString();
-                                await _hubContext.Clients
-                                    .Client(s.ConnectionId)
-                                    .SendAsync("ReceiveChatResponsePart", s.SessionId, delta);
-                            }
-                            break;
-                        case "response.text.done":
-                            await _hubContext.Clients
-                                .Client(s.ConnectionId)
-                                .SendAsync("ReceiveChatResponseComplete", s.SessionId);
-                            break;
+                        Console.Error.WriteLine(
+                            $"[OpenAI] transcription FAILED for item {itemId}: " +
+                            $"{errType}/{errCode}: {errMsg}"
+                        );
+                        // push to client if you like:
+                        await _hubContext.Clients.Client(s.ConnectionId)
+                                .SendAsync("ReceiveTranscriptionError", s.SessionId, errMsg);
+                        break;
                     }
-                }
+                case "response.audio_transcript.delta":
+                    {
+                        var partial = doc.RootElement
+                                         .GetProperty("data")
+                                         .GetProperty("transcript")
+                                         .GetString();
+                        await _hubContext.Clients
+                            .Client(s.ConnectionId)
+                            .SendAsync("ReceivePartialTranscript", s.SessionId, partial);
+                    }
+                    break;
+                case "response.audio_transcript.done":
+                    {
+                        var text = doc.RootElement
+                            .GetProperty("data")
+                            .GetProperty("transcript")
+                            .GetString();
+                        await _hubContext.Clients
+                            .Client(s.ConnectionId)
+                            .SendAsync("ReceiveFinalTranscript", s.SessionId, text);
+                    }
+                    break;
+                case "response.audio.delta":
+                    {
+                        var delta = doc.RootElement
+                            .GetProperty("data")
+                            .GetProperty("content")
+                            .GetString();
+                        await _hubContext.Clients
+                            .Client(s.ConnectionId)
+                            .SendAsync("ReceiveChatResponsePart", s.SessionId, delta);
+                    }
+                    break;
+                case "response.text.done":
+                    await _hubContext.Clients
+                        .Client(s.ConnectionId)
+                        .SendAsync("ReceiveChatResponseComplete", s.SessionId);
+                    break;
             }
         }
     }
