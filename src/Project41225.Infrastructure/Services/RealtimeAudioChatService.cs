@@ -28,63 +28,73 @@ public class RealtimeAudioChatService : IRealtimeAudioChatService
         {
             var ws = new ClientWebSocket();
             ws.Options.SetRequestHeader("Authorization", $"Bearer {_openAIOptions.Key}");
-            ws.Options.SetRequestHeader("openai-beta", $"realtime=v1");
-            // connect to Realtime API
+            ws.Options.SetRequestHeader("openai-beta", "realtime=v1"); // REQUIRED
+
             var uri = new Uri($"{_openAIOptions.RealtimeApi.WebSocketEndpoint}/realtime?model={_openAIOptions.RealtimeApi.ModelDeploymentName}");
             await ws.ConnectAsync(uri, CancellationToken.None);
 
-            // send session.update to configure transcription & VAD
             var sessionUpdate = new
             {
                 type = "session.update",
                 session = new
                 {
-                    input_audio_format = _openAIOptions.RealtimeApi.AudioFormat,
-                    input_audio_transcription = new { model = _openAIOptions.RealtimeApi.AudioTranscriptionModel },
+                    input_audio_format = "pcm16",
+                    output_audio_format = "pcm16",
+                    modalities = new[] { "text", "audio" },
+                    input_audio_transcription = new { model = "whisper-1" },
                     turn_detection = new { type = "server_vad" }
                 }
             };
+
             await SendJsonAsync(ws, sessionUpdate);
 
             var s = new WebSocketSession(ws, connectionId, sessionId);
             _sessions[sessionId.ToString()] = s;
 
-            _ = ReceiveLoopAsync(s); // fire‐and‐forget
+            _ = ReceiveLoopAsync(s); // fire and forget
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException($"An error occured starting a new session: {ex.Message}");
+            Console.WriteLine($"Failed to start session: {ex.Message}");
+            throw new InvalidOperationException($"Failed to start session: {ex.Message}", ex);
         }
     }
+
 
     public async Task ProcessAudioChunkAsync(Guid sessionId, byte[] pcm16Chunk)
     {
         if (!_sessions.TryGetValue(sessionId.ToString(), out var s))
-            throw new InvalidOperationException("Session not found");
-
-        if (s.Socket.State != WebSocketState.Open)
         {
-            Console.WriteLine($"⚠️ WebSocket not open for session: {sessionId}");
+            Console.WriteLine($"Session not found: {sessionId}");
             return;
         }
 
-        var header = new { type = "input_audio_buffer.append" };
-        var headerBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(header));
+        if (s.Socket.State != WebSocketState.Open)
+        {
+            Console.WriteLine($"WebSocket is not open for session {sessionId}");
+            return;
+        }
 
-        // Send JSON header
-        await s.Socket.SendAsync(
-            new ArraySegment<byte>(headerBytes),
-            WebSocketMessageType.Text,
-            true,
-            CancellationToken.None);
+        var headerJson = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
+        {
+            type = "input_audio_buffer.append",
+            audio = Convert.ToBase64String(pcm16Chunk)
+        }));
 
-        // ✅ Then send actual audio as binary
-        await s.Socket.SendAsync(
-            new ArraySegment<byte>(pcm16Chunk),
-            WebSocketMessageType.Binary,
-            true,
-            CancellationToken.None);
+        try
+        {
+            await s.Socket.SendAsync(
+                new ArraySegment<byte>(headerJson),
+                WebSocketMessageType.Text,
+                true,
+                CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to send audio chunk: {ex.Message}");
+        }
     }
+
 
     public async Task StopSessionAsync(string connectionId)
     {
@@ -99,57 +109,59 @@ public class RealtimeAudioChatService : IRealtimeAudioChatService
 
     private async Task ReceiveLoopAsync(WebSocketSession s)
     {
-        var buffer = new byte[8_192];
+        var buffer = new byte[8192];
         var ms = new MemoryStream();
-        while (s.Socket.State == WebSocketState.Open)
+
+        try
         {
-            var result = await s.Socket.ReceiveAsync(buffer, CancellationToken.None);
-            if (result.MessageType == WebSocketMessageType.Close)
-                break;
-
-            ms.Write(buffer, 0, result.Count);
-            if (result.EndOfMessage)
+            while (s.Socket.State == WebSocketState.Open)
             {
-                var raw = ms.ToArray();
-                ms.SetLength(0);
+                var result = await s.Socket.ReceiveAsync(buffer, CancellationToken.None);
 
-                if (result.MessageType == WebSocketMessageType.Text)
+                if (result.MessageType == WebSocketMessageType.Close)
+                    break;
+
+                ms.Write(buffer, 0, result.Count);
+
+                if (result.EndOfMessage)
                 {
-                    var doc = JsonDocument.Parse(raw);
-                    var type = doc.RootElement.GetProperty("type").GetString();
-                    switch (type)
+                    var raw = ms.ToArray();
+                    ms.SetLength(0);
+
+                    if (result.MessageType == WebSocketMessageType.Text)
                     {
-                        case "conversation.item.audio_transcription.completed":
-                            {
-                                var text = doc.RootElement
-                                    .GetProperty("data")
-                                    .GetProperty("transcript")
-                                    .GetString();
-                                Console.WriteLine(@$"TRANSCRIBED TEXT: {text}");
-                                await _hubContext.Clients
-                                    .Client(s.ConnectionId)
-                                    .SendAsync("ReceiveFinalTranscript", s.SessionId, text);
-                            }
-                            break;
-                        case "response.text.delta":
-                            {
-                                var delta = doc.RootElement
-                                    .GetProperty("data")
-                                    .GetProperty("content")
-                                    .GetString();
-                                await _hubContext.Clients
-                                    .Client(s.ConnectionId)
-                                    .SendAsync("ReceiveChatResponsePart", s.SessionId, delta);
-                            }
-                            break;
-                        case "response.text.done":
-                            await _hubContext.Clients
-                                .Client(s.ConnectionId)
-                                .SendAsync("ReceiveChatResponseComplete", s.SessionId);
-                            break;
+                        var json = Encoding.UTF8.GetString(raw);
+                        Console.WriteLine($"Received: {json}");
+
+                        var doc = JsonDocument.Parse(json);
+                        var type = doc.RootElement.GetProperty("type").GetString();
+
+                        switch (type)
+                        {
+                            case "conversation.item.audio_transcription.completed":
+                                var transcript = doc.RootElement.GetProperty("data").GetProperty("transcript").GetString();
+                                Console.WriteLine($"Transcript: {transcript}");
+                                await _hubContext.Clients.Client(s.ConnectionId)
+                                    .SendAsync("ReceiveFinalTranscript", s.SessionId, transcript);
+                                break;
+
+                            case "error":
+                                var err = doc.RootElement.GetProperty("error").GetProperty("message").GetString();
+                                Console.WriteLine($"OpenAI error: {err}");
+                                break;
+                        }
                     }
                 }
             }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ReceiveLoopAsync failed: {ex.Message}");
+        }
+        finally
+        {
+            _sessions.TryRemove(s.SessionId.ToString(), out _);
+            Console.WriteLine($"Session cleaned up: {s.SessionId}");
         }
     }
 
