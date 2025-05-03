@@ -26,7 +26,17 @@ public class AudioHub : Hub
 
     public async Task SendAudioChunk(Guid sessionId, byte[] chunk)
     {
-        await _chatService.ProcessAudioChunkAsync(sessionId, chunk);
+        try
+        {
+            await _chatService.ProcessAudioChunkAsync(sessionId, chunk);
+        }
+        catch (Exception)
+        {
+            await _chatService.StopSessionByConnectionAsync(Context.ConnectionId);
+            throw;
+        }
+
+        
     }
 
     public async Task StopSession(Guid sessionId)
