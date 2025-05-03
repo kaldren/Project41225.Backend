@@ -1,5 +1,4 @@
 ﻿using Microsoft.AspNetCore.SignalR;
-using Microsoft.Azure.Cosmos.Core;
 using Microsoft.Extensions.Options;
 using Project41225.Application.Common.Settings;
 using Project41225.Application.Interfaces;
@@ -43,18 +42,21 @@ public class RealtimeAudioChatService : IRealtimeAudioChatService
                 session = new
                 {
                     input_audio_format = _openAIOptions.RealtimeApi.AudioFormat,
-                    input_audio_transcription = new { model = _openAIOptions.RealtimeApi.AudioTranscriptionModel },
+                    input_audio_transcription = new { 
+                        model = _openAIOptions.RealtimeApi.AudioTranscriptionModel,
+                        language = _openAIOptions.RealtimeApi.TranscriptionLanguage
+                    },
                     turn_detection = new 
                     { 
                         type = "server_vad",
                         // how loud must speech be?
-                        threshold = 0.7,
+                        threshold = 0.5,
                         // how many ms of silence to trigger turn.end?
-                        silence_duration_ms = 700,
+                        silence_duration_ms = 500,
                         // (optional) include a little audio before speech
                         prefix_padding_ms = 100,
                         // (optional) auto‐create response on turn.end
-                        create_response = true,
+                        //create_response = true, // DISABLED FOR RETURNING TEXT RATHER THEN AUDIO CHUNKS
                         // (optional) cut off mid‐generation if user speaks
                         interrupt_response = true
 
@@ -165,6 +167,15 @@ public class RealtimeAudioChatService : IRealtimeAudioChatService
                 case "turn.ended":
                     // server-side VAD detected end of user speech
                     // automatically ask for the model’s reply
+                    await SendJsonAsync(s.Socket, new
+                    {
+                        type = "response.create",
+                        response = new
+                        {
+                            modalities = new[] { "text" },
+                            instructions = $"Please answer in English."
+                        }
+                    });
                     //await SendJsonAsync(s.Socket, new { type = "response.create" });
                     break;
                 
@@ -187,35 +198,69 @@ public class RealtimeAudioChatService : IRealtimeAudioChatService
                     }
                 case "response.audio_transcript.delta":
                     {
-                        var partial = doc.RootElement
-                                         .GetProperty("data")
-                                         .GetProperty("transcript")
-                                         .GetString();
-                        await _hubContext.Clients
-                            .Client(s.ConnectionId)
-                            .SendAsync("ReceivePartialTranscript", s.SessionId, partial);
+                        try
+                        {
+                            Console.WriteLine($"response.audio_transcript.delta doc: {doc.RootElement.GetRawText()}");
+                            var partial = doc.RootElement.GetProperty("delta").GetString() ?? "";
+                            Console.WriteLine($"response.audio_transcript.delta: {partial}");
+                            await _hubContext.Clients
+                                .Client(s.ConnectionId)
+                                .SendAsync("ReceivePartialTranscript", s.SessionId, partial);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.Error.WriteLine($"response.audio_transcript.delta error: {ex.Message}");
+                            throw;
+                        }
+                        
                     }
                     break;
                 case "response.audio_transcript.done":
                     {
-                        var text = doc.RootElement
-                            .GetProperty("data")
-                            .GetProperty("transcript")
-                            .GetString();
-                        await _hubContext.Clients
-                            .Client(s.ConnectionId)
-                            .SendAsync("ReceiveFinalTranscript", s.SessionId, text);
+                        try
+                        {
+                            Console.WriteLine($"response.audio_transcript.done doc: {doc.RootElement.GetRawText()}");
+                            var text = doc.RootElement
+                               .GetProperty("transcript")
+                               .GetString() ?? "";
+                            Console.WriteLine($"response.audio_transcript.done data: {text}");
+                            await _hubContext.Clients
+                                .Client(s.ConnectionId)
+                                .SendAsync("ReceiveFinalTranscript", s.SessionId, text);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.Error.WriteLine($"response.audio_transcript.done error: {ex.Message}");
+                            throw;
+                        }
+                        
                     }
                     break;
                 case "response.audio.delta":
                     {
-                        var delta = doc.RootElement
-                            .GetProperty("data")
-                            .GetProperty("content")
-                            .GetString();
-                        await _hubContext.Clients
-                            .Client(s.ConnectionId)
-                            .SendAsync("ReceiveChatResponsePart", s.SessionId, delta);
+                        continue; // skipping it for now
+                        try
+                        {
+                            Console.WriteLine($"response.audio.delta doc: {doc.RootElement.GetRawText()}");
+                            // Pull the Base64-encoded chunk out of the top-level "delta" field
+                            var deltaBase64 = doc.RootElement
+                                         .GetProperty("delta")
+                                         .GetString() ?? "";
+
+                            // Decode back into bytes
+                            var chunk = Convert.FromBase64String(deltaBase64);
+
+                            
+                            await _hubContext.Clients
+                                .Client(s.ConnectionId)
+                                .SendAsync("ReceiveChatResponsePart", s.SessionId, chunk);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.Error.WriteLine($"response.audio.delta error: {ex.Message}");
+                            throw;
+                        }
+                        
                     }
                     break;
                 case "response.text.done":
@@ -223,6 +268,25 @@ public class RealtimeAudioChatService : IRealtimeAudioChatService
                         .Client(s.ConnectionId)
                         .SendAsync("ReceiveChatResponseComplete", s.SessionId);
                     break;
+                case "response.done":
+                    {
+                        // overall response done, just in case
+                        await _hubContext.Clients
+                           .Client(s.ConnectionId)
+                           .SendAsync("ReceiveChatResponseComplete", s.SessionId);
+                        break;
+                    }
+                case "error":
+                    {
+                        var errorObj = doc.RootElement.GetProperty("error");
+                        var errType = errorObj.GetProperty("type").GetString();
+                        var errCode = errorObj.GetProperty("code").GetString();
+                        var errMsg = errorObj.GetProperty("message").GetString();
+
+                        await _hubContext.Clients.Client(s.ConnectionId)
+                                .SendAsync("ReceiveTranscriptionError", s.SessionId, errMsg);
+                        break;
+                    }
             }
         }
     }

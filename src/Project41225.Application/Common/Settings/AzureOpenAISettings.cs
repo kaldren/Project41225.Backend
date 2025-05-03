@@ -30,5 +30,8 @@ public class AzureOpenAISettings
 
         [Required(AllowEmptyStrings = false)]
         public string AudioTranscriptionModel { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        public string TranscriptionLanguage { get; set; } = string.Empty;
     }
 }
