@@ -1,6 +1,6 @@
 ﻿namespace Project41225.Domain.Entities;
 
-public class BaseEntity
+public abstract class BaseEntity<TId>
 {
-    public virtual Guid Id { get; set; }
+    public TId Id { get; set; }
 }

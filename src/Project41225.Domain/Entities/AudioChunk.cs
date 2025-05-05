@@ -1,5 +1,5 @@
 ﻿namespace Project41225.Domain.Entities;
-public class AudioChunk : BaseEntity
+public class AudioChunk : BaseEntity<Guid>
 {
     public Guid SessionId { get; set; }
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;

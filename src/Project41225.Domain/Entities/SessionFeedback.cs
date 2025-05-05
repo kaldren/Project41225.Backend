@@ -1,6 +1,6 @@
 ﻿namespace Project41225.Domain.Entities;
 
-public class SessionFeedback : BaseEntity
+public class SessionFeedback : BaseEntity<Guid>
 {
     public Guid SessionId { get; set; }
     public int Clarity { get; set; }
